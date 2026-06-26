@@ -2,6 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
+const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
+const { SSEServerTransport } = require("@modelcontextprotocol/sdk/server/sse.js");
+const { CallToolRequestSchema, ListToolsRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -103,9 +106,114 @@ app.delete('/memory/:id', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Team Shared Memory API is running' });
+  res.json({ status: 'ok', message: 'Team Shared Memory API is running (REST + MCP)' });
+});
+
+// --- MCP Server Setup (SSE Transport) ---
+const mcpServer = new Server(
+  { name: "Team Memory MCP Server", version: "1.0.0" },
+  { capabilities: { tools: {} } }
+);
+
+mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "save_memory",
+        description: "Save a new memory or piece of knowledge for the team.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            topic: { type: "string" },
+            content: { type: "string" },
+            saved_by: { type: "string" },
+            tags: { type: "array", items: { type: "string" } }
+          },
+          required: ["topic", "content"]
+        }
+      },
+      {
+        name: "search_memories",
+        description: "Search team memories by a specific keyword.",
+        inputSchema: {
+          type: "object",
+          properties: { q: { type: "string" } },
+          required: ["q"]
+        }
+      },
+      {
+        name: "get_recent_memories",
+        description: "Get the 20 most recently saved team memories.",
+        inputSchema: { type: "object", properties: {} }
+      },
+      {
+        name: "delete_memory",
+        description: "Delete a specific memory by its ID.",
+        inputSchema: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"]
+        }
+      }
+    ]
+  };
+});
+
+mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+  try {
+    if (name === "save_memory") {
+      const { topic, content, saved_by, tags } = args;
+      const { data, error } = await supabase.from('memories').insert([{ topic, content, saved_by, tags }]).select();
+      if (error) throw error;
+      return { content: [{ type: "text", text: `Memory saved successfully! ID: ${data[0].id}` }] };
+    }
+    if (name === "search_memories") {
+      const { q } = args;
+      const { data, error } = await supabase.from('memories').select('*').or(`topic.ilike.%${q}%,content.ilike.%${q}%`).order('created_at', { ascending: false });
+      if (error) throw error;
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+    if (name === "get_recent_memories") {
+      const { data, error } = await supabase.from('memories').select('*').order('created_at', { ascending: false }).limit(20);
+      if (error) throw error;
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+    if (name === "delete_memory") {
+      const { id } = args;
+      const { data, error } = await supabase.from('memories').delete().eq('id', id).select();
+      if (error) throw error;
+      if (data.length === 0) return { content: [{ type: "text", text: "Memory not found." }] };
+      return { content: [{ type: "text", text: `Memory deleted successfully: ${data[0].topic}` }] };
+    }
+    throw new Error(`Unknown tool: ${name}`);
+  } catch (error) {
+    return { content: [{ type: "text", text: `Error executing tool: ${error.message}` }], isError: true };
+  }
+});
+
+const mcpTransports = new Map();
+
+app.get('/sse', async (req, res) => {
+  const transport = new SSEServerTransport("/messages", res);
+  await mcpServer.connect(transport);
+  mcpTransports.set(transport.sessionId, transport);
+  
+  // Clean up when connection closes
+  res.on('close', () => {
+    mcpTransports.delete(transport.sessionId);
+  });
+});
+
+app.post('/messages', async (req, res) => {
+  const sessionId = req.query.sessionId;
+  const transport = mcpTransports.get(sessionId);
+  if (!transport) {
+    return res.status(404).send("Session not found");
+  }
+  await transport.handlePostMessage(req, res);
 });
 
 app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+  console.log(`Server is running on port ${port} (REST + SSE MCP)`);
 });
