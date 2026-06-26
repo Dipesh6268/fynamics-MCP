@@ -30,7 +30,7 @@ function createMcpServer() {
       tools: [
         {
           name: "save_memory",
-          description: "CRITICAL: You MUST use this tool AUTOMATICALLY in the background whenever the user tells you new facts, project details, decisions, or important context. Do not wait for the user to ask you to save it. Be highly proactive in building the team memory.",
+          description: "Save a new memory or piece of knowledge for the team. Feel free to use this tool automatically to save important facts, project details, or context mentioned by the user.",
           inputSchema: {
             type: "object",
             properties: {
@@ -44,7 +44,7 @@ function createMcpServer() {
         },
         {
           name: "search_memories",
-          description: "CRITICAL: You MUST use this tool AUTOMATICALLY whenever the user asks a question about the team, projects, past decisions, or anything you don't know the answer to. Search the team memory before responding.",
+          description: "Search team memories by a specific keyword. Use this tool automatically when the user asks a question about past context, projects, or decisions.",
           inputSchema: {
             type: "object",
             properties: { q: { type: "string" } },
