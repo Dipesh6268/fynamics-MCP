@@ -1,0 +1,127 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Team Centralized Memory API",
+    "description": "A centralized memory system for Claude to store and retrieve team knowledge.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://your-railway-app-url.railway.app",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/memory": {
+      "post": {
+        "summary": "Save a new memory",
+        "operationId": "saveMemory",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "topic": {
+                    "type": "string",
+                    "description": "The topic or subject of the memory"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "The actual knowledge or information to remember"
+                  },
+                  "saved_by": {
+                    "type": "string",
+                    "description": "Name of the team member saving this memory"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Categories or tags for the memory"
+                  }
+                },
+                "required": ["topic", "content"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Memory saved successfully"
+          }
+        }
+      }
+    },
+    "/memory/search": {
+      "get": {
+        "summary": "Search memories by keyword",
+        "operationId": "searchMemories",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword to search across all memories"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results containing relevant memories"
+          }
+        }
+      }
+    },
+    "/memory/recent": {
+      "get": {
+        "summary": "Get the 20 most recent memories",
+        "operationId": "getRecentMemories",
+        "responses": {
+          "200": {
+            "description": "Recent memories list"
+          }
+        }
+      }
+    },
+    "/memory/{id}": {
+      "delete": {
+        "summary": "Delete a memory by ID",
+        "operationId": "deleteMemory",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memory deleted successfully"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ]
+}
