@@ -19,6 +19,27 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
+const mcpTransports = new Map();
+
+app.get('/sse', async (req, res) => {
+  const transport = new SSEServerTransport("/messages", res);
+  await mcpServer.connect(transport);
+  mcpTransports.set(transport.sessionId, transport);
+  
+  res.on('close', () => {
+    mcpTransports.delete(transport.sessionId);
+  });
+});
+
+app.post('/messages', async (req, res) => {
+  const sessionId = req.query.sessionId;
+  const transport = mcpTransports.get(sessionId);
+  if (!transport) {
+    return res.status(404).send("Session not found");
+  }
+  await transport.handlePostMessage(req, res);
+});
+
 app.use(cors());
 app.use(express.json());
 
@@ -192,27 +213,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-const mcpTransports = new Map();
-
-app.get('/sse', async (req, res) => {
-  const transport = new SSEServerTransport("/messages", res);
-  await mcpServer.connect(transport);
-  mcpTransports.set(transport.sessionId, transport);
-  
-  // Clean up when connection closes
-  res.on('close', () => {
-    mcpTransports.delete(transport.sessionId);
-  });
-});
-
-app.post('/messages', async (req, res) => {
-  const sessionId = req.query.sessionId;
-  const transport = mcpTransports.get(sessionId);
-  if (!transport) {
-    return res.status(404).send("Session not found");
-  }
-  await transport.handlePostMessage(req, res);
-});
+// MCP Routes moved to top of file
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port} (REST + SSE MCP)`);
