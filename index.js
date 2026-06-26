@@ -19,11 +19,98 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
+function createMcpServer() {
+  const server = new Server(
+    { name: "Team Memory MCP Server", version: "1.0.0" },
+    { capabilities: { tools: {} } }
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "save_memory",
+          description: "Save a new memory or piece of knowledge for the team.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              topic: { type: "string" },
+              content: { type: "string" },
+              saved_by: { type: "string" },
+              tags: { type: "array", items: { type: "string" } }
+            },
+            required: ["topic", "content"]
+          }
+        },
+        {
+          name: "search_memories",
+          description: "Search team memories by a specific keyword.",
+          inputSchema: {
+            type: "object",
+            properties: { q: { type: "string" } },
+            required: ["q"]
+          }
+        },
+        {
+          name: "get_recent_memories",
+          description: "Get the 20 most recently saved team memories.",
+          inputSchema: { type: "object", properties: {} }
+        },
+        {
+          name: "delete_memory",
+          description: "Delete a specific memory by its ID.",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"]
+          }
+        }
+      ]
+    };
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      if (name === "save_memory") {
+        const { topic, content, saved_by, tags } = args;
+        const { data, error } = await supabase.from('memories').insert([{ topic, content, saved_by, tags }]).select();
+        if (error) throw error;
+        return { content: [{ type: "text", text: `Memory saved successfully! ID: ${data[0].id}` }] };
+      }
+      if (name === "search_memories") {
+        const { q } = args;
+        const { data, error } = await supabase.from('memories').select('*').or(`topic.ilike.%${q}%,content.ilike.%${q}%`).order('created_at', { ascending: false });
+        if (error) throw error;
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      }
+      if (name === "get_recent_memories") {
+        const { data, error } = await supabase.from('memories').select('*').order('created_at', { ascending: false }).limit(20);
+        if (error) throw error;
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      }
+      if (name === "delete_memory") {
+        const { id } = args;
+        const { data, error } = await supabase.from('memories').delete().eq('id', id).select();
+        if (error) throw error;
+        if (data.length === 0) return { content: [{ type: "text", text: "Memory not found." }] };
+        return { content: [{ type: "text", text: `Memory deleted successfully: ${data[0].topic}` }] };
+      }
+      throw new Error(`Unknown tool: ${name}`);
+    } catch (error) {
+      return { content: [{ type: "text", text: `Error executing tool: ${error.message}` }], isError: true };
+    }
+  });
+
+  return server;
+}
+
 const mcpTransports = new Map();
 
 app.get('/sse', async (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
-  await mcpServer.connect(transport);
+  const server = createMcpServer();
+  await server.connect(transport);
   mcpTransports.set(transport.sessionId, transport);
   
   res.on('close', () => {
@@ -130,88 +217,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Team Shared Memory API is running (v3)' });
 });
 
-// --- MCP Server Setup (SSE Transport) ---
-const mcpServer = new Server(
-  { name: "Team Memory MCP Server", version: "1.0.0" },
-  { capabilities: { tools: {} } }
-);
-
-mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "save_memory",
-        description: "Save a new memory or piece of knowledge for the team.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            topic: { type: "string" },
-            content: { type: "string" },
-            saved_by: { type: "string" },
-            tags: { type: "array", items: { type: "string" } }
-          },
-          required: ["topic", "content"]
-        }
-      },
-      {
-        name: "search_memories",
-        description: "Search team memories by a specific keyword.",
-        inputSchema: {
-          type: "object",
-          properties: { q: { type: "string" } },
-          required: ["q"]
-        }
-      },
-      {
-        name: "get_recent_memories",
-        description: "Get the 20 most recently saved team memories.",
-        inputSchema: { type: "object", properties: {} }
-      },
-      {
-        name: "delete_memory",
-        description: "Delete a specific memory by its ID.",
-        inputSchema: {
-          type: "object",
-          properties: { id: { type: "string" } },
-          required: ["id"]
-        }
-      }
-    ]
-  };
-});
-
-mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  try {
-    if (name === "save_memory") {
-      const { topic, content, saved_by, tags } = args;
-      const { data, error } = await supabase.from('memories').insert([{ topic, content, saved_by, tags }]).select();
-      if (error) throw error;
-      return { content: [{ type: "text", text: `Memory saved successfully! ID: ${data[0].id}` }] };
-    }
-    if (name === "search_memories") {
-      const { q } = args;
-      const { data, error } = await supabase.from('memories').select('*').or(`topic.ilike.%${q}%,content.ilike.%${q}%`).order('created_at', { ascending: false });
-      if (error) throw error;
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-    }
-    if (name === "get_recent_memories") {
-      const { data, error } = await supabase.from('memories').select('*').order('created_at', { ascending: false }).limit(20);
-      if (error) throw error;
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-    }
-    if (name === "delete_memory") {
-      const { id } = args;
-      const { data, error } = await supabase.from('memories').delete().eq('id', id).select();
-      if (error) throw error;
-      if (data.length === 0) return { content: [{ type: "text", text: "Memory not found." }] };
-      return { content: [{ type: "text", text: `Memory deleted successfully: ${data[0].topic}` }] };
-    }
-    throw new Error(`Unknown tool: ${name}`);
-  } catch (error) {
-    return { content: [{ type: "text", text: `Error executing tool: ${error.message}` }], isError: true };
-  }
-});
+// MCP server implementation moved up into a function
 
 // MCP Routes moved to top of file
 
