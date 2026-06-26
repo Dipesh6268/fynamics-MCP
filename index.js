@@ -127,7 +127,7 @@ app.delete('/memory/:id', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Team Shared Memory API is running (REST + MCP)' });
+  res.json({ status: 'ok', message: 'Team Shared Memory API is running (v3)' });
 });
 
 // --- MCP Server Setup (SSE Transport) ---
