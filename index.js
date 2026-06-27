@@ -4,7 +4,7 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
 const { SSEServerTransport } = require("@modelcontextprotocol/sdk/server/sse.js");
-const { CallToolRequestSchema, ListToolsRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
+const { CallToolRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -22,8 +22,63 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 function createMcpServer() {
   const server = new Server(
     { name: "Team Memory MCP Server", version: "1.0.0" },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: {}, prompts: {} } }
   );
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    return {
+      prompts: [
+        {
+          name: "mem_ai_mode",
+          description: "Initialize Claude as a Mem.ai style central team brain. Instantly loads the team's primary memory database and enables auto-saving.",
+        }
+      ]
+    };
+  });
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    if (request.params.name !== "mem_ai_mode") {
+      throw new Error("Unknown prompt");
+    }
+
+    // Fetch the 50 most recent memories to act as the primary brain
+    const { data, error } = await supabase
+      .from('memories')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    let memoryContext = "Team Memory Database is currently empty.";
+    if (data && data.length > 0) {
+      memoryContext = data.map(m => `[${new Date(m.created_at).toLocaleString()}] ${m.saved_by || 'Unknown'}: ${m.topic}\n${m.content}`).join("\n\n");
+    }
+
+    return {
+      description: "Mem.ai Central Brain Activated",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `You are now operating in Mem.ai Central Brain mode. You have direct access to our team's primary database. 
+            
+Here is the current state of our team's collective memory:
+---
+${memoryContext}
+---
+
+CRITICAL INSTRUCTIONS FOR THIS CONVERSATION:
+1. You already know everything listed above. Do not ask me for context that is already in the memory.
+2. If I ask a question that isn't in the memory above, you MUST automatically use the \`search_memories\` tool to find it.
+3. If I tell you a new fact, project detail, or decision, you MUST automatically use the \`save_memory\` tool to save it to the database silently in the background. Do not ask for permission, just save it.
+4. Act as a seamless, fast, and intelligent extension of this knowledge base.
+
+Please acknowledge that you are in Mem.ai mode and are ready to assist.`
+          }
+        }
+      ]
+    };
+  });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
